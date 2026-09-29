@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>MFG Output Analysis</title>
+  <title>刀具費與成本關係</title>
   <!-- 引入 FontAwesome, Chart.js, html2canvas, SheetJS (xlsx) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -265,7 +265,7 @@ onAuthStateChanged(auth, (user) => {
 
       let chartsHtml = '';
       if (isCostSheet) {
-        chartsHtml += `<div class="charts-section-title"><i class="fa-solid fa-chart-line"></i> ${currentSheet.name} 相關分析圖表 (共6張)</div><div class="charts-grid">`;
+        chartsHtml += `<div class="charts-section-title"><i class="fa-solid fa-chart-line"></i> ${currentSheet.name} 分析圖表</div><div class="charts-grid">`;
         const chartConfigs = [
           { id: 'c1', title: '2025/01-2026/08 鎢鉬鉭刀具費金額與佔比趨勢圖' },
           { id: 'c2', title: '2025/01~2026/08 鎢鉬鉭刀具費與成本趨勢圖' },
