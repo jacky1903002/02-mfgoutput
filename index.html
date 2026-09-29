@@ -263,16 +263,27 @@ onAuthStateChanged(auth, (user) => {
 
       let isCostSheet = currentSheet.columns.length > 5 || currentSheet.name.includes("刀具") || currentSheet.name.includes("成本") || currentSheet.name.includes("工作表");
 
-      let chartsHtml = '';
+     let chartsHtml = '';
       if (isCostSheet) {
+        // 💡 1. 在 renderApp 裡面直接動態計算當前工作表的月份區間
+        const monthCols = currentSheet.columns.filter(c => {
+          let t = String(c.title || '').trim();
+          return t.includes('-') || t.includes('25') || t.includes('26');
+        });
+        const finalMonthCols = monthCols.length > 0 ? monthCols : currentSheet.columns.slice(1);
+        let startMonth = finalMonthCols.length > 0 ? finalMonthCols[0].title : '2025/01';
+        let endMonth = finalMonthCols.length > 0 ? finalMonthCols[finalMonthCols.length - 1].title : '2026/08';
+        let periodStr = `${startMonth}-${endMonth}`;
+
+        // 💡 2. 使用樣板字串動態代入 periodStr，取代原本寫死的 2025/01-2026/08
         chartsHtml += `<div class="charts-section-title"><i class="fa-solid fa-chart-line"></i> ${currentSheet.name} 分析圖表</div><div class="charts-grid">`;
         const chartConfigs = [
-          { id: 'c1', title: '2025/01-2026/08 鎢鉬鉭刀具費金額與佔比趨勢圖' },
-          { id: 'c2', title: '2025/01~2026/08 鎢鉬鉭刀具費與成本趨勢圖' },
-          { id: 'c3', title: '2025/01-2026/08 石墨具費金額與佔比趨勢圖' },
-          { id: 'c4', title: '2025/01~2026/08 石墨刀具費與成本趨勢圖' },
-          { id: 'c5', title: '2025/01-2026/08 其他刀具費金額與佔比趨勢圖' },
-          { id: 'c6', title: '2025/01~2026/08 其他刀具費與成本趨勢圖' }
+          { id: 'c1', title: `${periodStr} 鎢鉬鉭刀具費金額與佔比趨勢圖` },
+          { id: 'c2', title: `${periodStr} 鎢鉬鉭刀具費與成本趨勢圖` },
+          { id: 'c3', title: `${periodStr} 石墨刀具費金額與佔比趨勢圖` },
+          { id: 'c4', title: `${periodStr} 石墨刀具費與成本趨勢圖` },
+          { id: 'c5', title: `${periodStr} 其他刀具費金額與佔比趨勢圖` },
+          { id: 'c6', title: `${periodStr} 其他刀具費與成本趨勢圖` }
         ];
 
         chartConfigs.forEach(cfg => {
@@ -295,7 +306,6 @@ onAuthStateChanged(auth, (user) => {
           </div>
         </div>`;
       }
-
       document.getElementById('charts-container').innerHTML = chartsHtml;
 
       setTimeout(() => { 
