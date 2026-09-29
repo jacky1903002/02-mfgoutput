@@ -122,17 +122,12 @@ onAuthStateChanged(auth, (user) => {
   if (user) {
     userSpan.innerText = `管理者：${user.email}`;
     
-    // 檢查登入的使用者信箱是否包含在 ALLOWED_ADMINS 陣列中
-    if (ALLOWED_ADMINS.includes(user.email)) {
-      window.isAuthorizedEditor = true;
-      authBtn.innerText = "登出";
-      authBtn.onclick = window.logoutGoogle;
-      authBtn.style.background = "#dc2626";
-    } else {
-      window.isAuthorizedEditor = false;
-      authBtn.innerText = "權限不足 (登出)";
-      authBtn.onclick = window.logoutGoogle;
-    }
+    // 直接賦予權限給所有已透過 Firebase 登入的使用者
+    window.isAuthorizedEditor = true;
+    authBtn.innerText = "登出";
+    authBtn.onclick = window.logoutGoogle;
+    authBtn.style.background = "#dc2626";
+    
   } else {
     window.isAuthorizedEditor = false;
     userSpan.innerText = "未登入";
