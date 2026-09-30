@@ -3,11 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <title>刀具費與成本關係</title>
+  <!-- 效能優化：加入 preconnect 加速外部 CDN 資源載入 -->
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="preconnect" href="https://www.gstatic.com">
+  
   <!-- 引入 FontAwesome, Chart.js, html2canvas, SheetJS (xlsx) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
   
   <!-- Firebase SDKs & 登入機制 -->
   <script type="module">
@@ -34,6 +39,27 @@
 
     const ADMIN_EMAIL = "n1693131@gmail.com";
     window.isAuthorizedEditor = false;
+    window.updatedAt = null;
+
+    // 動態時間格式化與顯示函式[cite: 10]
+    window.formatDateTime = function(isoString) {
+      if (!isoString) return '尚無更新紀錄';
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return isoString;
+      const yr = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hr = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      return `${yr}年${m}月${day}日 ${hr}:${min}`;
+    };
+
+    window.updateTimeDisplay = function() {
+      const timeEl = document.getElementById('last-update-time-text');
+      if (timeEl) {
+        timeEl.innerText = window.updatedAt ? window.formatDateTime(window.updatedAt) : '尚未記錄';
+      }
+    };
 
     let saveTimeout = null;
     window.autoSaveToFirebase = function() {
@@ -44,7 +70,10 @@
       if (saveTimeout) clearTimeout(saveTimeout);
       saveTimeout = setTimeout(async () => {
         try {
+          window.appState.updatedAt = new Date().toISOString();
+          window.updatedAt = window.appState.updatedAt;
           await set(ref(db, 'mfg_data'), window.appState);
+          window.updateTimeDisplay();
           if (statusEl) {
             statusEl.innerText = "已自動儲存";
             setTimeout(() => { if (statusEl.innerText === "已自動儲存") statusEl.innerText = ""; }, 2000);
@@ -83,20 +112,23 @@
       }
     ];
 
-    window.appState = { sheets: [], currentSheetId: "s1" };
+    window.appState = { sheets: [], currentSheetId: "s1", updatedAt: null };
 
     async function loadDataFromFirebase() {
       try {
         const snapshot = await get(ref(db, 'mfg_data'));
         if (snapshot.exists()) {
           window.appState = snapshot.val();
+          window.updatedAt = window.appState.updatedAt || null;
         } else {
-          window.appState = { sheets: defaultSheets, currentSheetId: "s1" };
+          window.appState = { sheets: defaultSheets, currentSheetId: "s1", updatedAt: new Date().toISOString() };
+          window.updatedAt = window.appState.updatedAt;
           await set(ref(db, 'mfg_data'), window.appState);
         }
       } catch (e) {
-        window.appState = { sheets: defaultSheets, currentSheetId: "s1" };
+        window.appState = { sheets: defaultSheets, currentSheetId: "s1", updatedAt: null };
       }
+      window.updateTimeDisplay();
       renderApp();
     }
 
@@ -116,27 +148,24 @@
       signOut(auth).catch(error => alert("登出失敗: " + error.message));
     };
 
-onAuthStateChanged(auth, (user) => {
-  const userSpan = document.getElementById("user-info");
-  const authBtn = document.getElementById("auth-btn");
-  if (user) {
-    userSpan.innerText = `管理者：${user.email}`;
-    
-    // 直接賦予權限給所有已透過 Firebase 登入的使用者
-    window.isAuthorizedEditor = true;
-    authBtn.innerText = "登出";
-    authBtn.onclick = window.logoutGoogle;
-    authBtn.style.background = "#dc2626";
-    
-  } else {
-    window.isAuthorizedEditor = false;
-    userSpan.innerText = "未登入";
-    authBtn.innerText = "管理員登入";
-    authBtn.onclick = () => window.toggleLoginModal(true);
-    authBtn.style.background = "#2563eb";
-  }
-  renderApp();
-});
+    onAuthStateChanged(auth, (user) => {
+      const userSpan = document.getElementById("user-info");
+      const authBtn = document.getElementById("auth-btn");
+      if (user) {
+        userSpan.innerText = `管理者：${user.email}`;
+        window.isAuthorizedEditor = true;
+        authBtn.innerText = "登出";
+        authBtn.onclick = window.logoutGoogle;
+        authBtn.style.background = "#dc2626";
+      } else {
+        window.isAuthorizedEditor = false;
+        userSpan.innerText = "未登入";
+        authBtn.innerText = "管理員登入";
+        authBtn.onclick = () => window.toggleLoginModal(true);
+        authBtn.style.background = "#2563eb";
+      }
+      renderApp();
+    });
 
     loadDataFromFirebase();
   </script>
@@ -146,6 +175,7 @@ onAuthStateChanged(auth, (user) => {
     header { background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     .brand { font-size: 18px; font-weight: bold; display: flex; align-items: center; gap: 8px; color: #0f172a; }
     .header-right { display: flex; align-items: center; gap: 15px; font-size: 14px; }
+    .update-banner { font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 4px; }
     .btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: background 0.2s; color: white; }
     .btn-primary { background: #2563eb; } .btn-primary:hover { background: #1d4ed8; }
     .btn-success { background: #10b981; } .btn-success:hover { background: #059669; }
@@ -185,6 +215,10 @@ onAuthStateChanged(auth, (user) => {
   <header>
     <div class="brand"><i class="fa-solid fa-chart-line" style="color:#2563eb;"></i> 刀具費與成本關係</div>
     <div class="header-right">
+      <!-- 加入的上次更新日期時間顯示區域 -->
+      <div class="update-banner">
+        <i class="fa-regular fa-clock"></i> 上次更新日期時間：<span id="last-update-time-text">讀取中...</span>
+      </div>
       <span id="save-status" style="font-size: 13px; color: #10b981; font-weight: 500;"></span>
       <span id="user-info" style="color: #64748b;">檢查登入中...</span>
       <button class="btn btn-success" onclick="exportToExcel()"><i class="fa-solid fa-file-excel"></i> 匯出 Excel</button>
@@ -263,9 +297,8 @@ onAuthStateChanged(auth, (user) => {
 
       let isCostSheet = currentSheet.columns.length > 5 || currentSheet.name.includes("刀具") || currentSheet.name.includes("成本") || currentSheet.name.includes("工作表");
 
-     let chartsHtml = '';
+      let chartsHtml = '';
       if (isCostSheet) {
-        // 💡 1. 在 renderApp 裡面直接動態計算當前工作表的月份區間
         const monthCols = currentSheet.columns.filter(c => {
           let t = String(c.title || '').trim();
           return t.includes('-') || t.includes('25') || t.includes('26');
@@ -275,7 +308,6 @@ onAuthStateChanged(auth, (user) => {
         let endMonth = finalMonthCols.length > 0 ? finalMonthCols[finalMonthCols.length - 1].title : '2026/08';
         let periodStr = `${startMonth}-${endMonth}`;
 
-        // 💡 2. 使用樣板字串動態代入 periodStr，取代原本寫死的 2025/01-2026/08
         chartsHtml += `<div class="charts-section-title"><i class="fa-solid fa-chart-line"></i> ${currentSheet.name} 分析圖表</div><div class="charts-grid">`;
         const chartConfigs = [
           { id: 'c1', title: `${periodStr} 鎢鉬鉭刀具費金額與佔比趨勢圖` },
@@ -308,13 +340,14 @@ onAuthStateChanged(auth, (user) => {
       }
       document.getElementById('charts-container').innerHTML = chartsHtml;
 
+      // 效能優化：縮短 setTimeout 延遲，加速圖表生成反應
       setTimeout(() => { 
         if (isCostSheet) {
           buildAllSixCharts(currentSheet); 
         } else {
           buildDefaultChart(currentSheet);
         }
-      }, 100);
+      }, 30);
     };
 
     window.switchSheet = function(id) {
@@ -607,35 +640,30 @@ onAuthStateChanged(auth, (user) => {
       });
     }
 
-window.exportChartToPNG = function(chartId, title) {
-  const element = document.getElementById(`export-area-${chartId}`);
-  if (!element) return;
-  
-  // 1. 找出該區域內的匯出按鈕並隱藏，避免被拍進圖片裡
-  const btn = element.querySelector('.export-btn') || element.querySelector('button');
-  if (btn) btn.style.display = 'none';
+    window.exportChartToPNG = function(chartId, title) {
+      const element = document.getElementById(`export-area-${chartId}`);
+      if (!element) return;
+      
+      const btn = element.querySelector('.export-btn') || element.querySelector('button');
+      if (btn) btn.style.display = 'none';
 
-  // 2. 開始進行 canvas 截圖
-  html2canvas(element, { 
-    scale: 3, 
-    useCORS: true,
-    backgroundColor: '#ffffff'
-  }).then(canvas => {
-    // 3. 截圖完成後，立即把按鈕顯示回來
-    if (btn) btn.style.display = '';
+      html2canvas(element, { 
+        scale: 3, 
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      }).then(canvas => {
+        if (btn) btn.style.display = '';
 
-    // 4. 建立下載連結並自動儲存圖片
-    const link = document.createElement('a');
-    link.download = `${title}.png`;
-    link.href = canvas.toDataURL('image/png', 1.0);
-    link.click();
-  }).catch((err) => {
-    // 發生錯誤也要記得把按鈕復原
-    if (btn) btn.style.display = '';
-    console.error("匯出圖片失敗：", err);
-    alert("匯出圖片失敗！");
-  });
-};
+        const link = document.createElement('a');
+        link.download = `${title}.png`;
+        link.href = canvas.toDataURL('image/png', 1.0);
+        link.click();
+      }).catch((err) => {
+        if (btn) btn.style.display = '';
+        console.error("匯出圖片失敗：", err);
+        alert("匯出圖片失敗！");
+      });
+    };
   </script>
 </body>
 </html>
