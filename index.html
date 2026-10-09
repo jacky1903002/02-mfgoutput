@@ -2,8 +2,10 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>刀具費與成本關係</title>
-  <!-- 效能優化：加入 preconnect 加速外部 CDN 資源載入 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>刀具費與成本關係分析系統</title>
+  
+  <!-- 效能優化：預先連線外部 CDN 資源 -->
   <link rel="preconnect" href="https://cdnjs.cloudflare.com">
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="preconnect" href="https://www.gstatic.com">
@@ -17,7 +19,6 @@
   <!-- Firebase SDKs & 登入機制 -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-    import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics.js";
     import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
     import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
 
@@ -33,15 +34,13 @@
     };
 
     const app = initializeApp(firebaseConfig);
-    const analytics = getAnalytics(app);
     const db = getDatabase(app);
     const auth = getAuth(app);
 
-    const ADMIN_EMAIL = "n1693131@gmail.com";
     window.isAuthorizedEditor = false;
     window.updatedAt = null;
 
-    // 動態時間格式化與顯示函式[cite: 10]
+    // 動態時間格式化與顯示函式
     window.formatDateTime = function(isoString) {
       if (!isoString) return '尚無更新紀錄';
       const d = new Date(isoString);
@@ -114,6 +113,7 @@
 
     window.appState = { sheets: [], currentSheetId: "s1", updatedAt: null };
 
+    // 載入 Firebase 資料，並強制重設當前工作表為第一個
     async function loadDataFromFirebase() {
       try {
         const snapshot = await get(ref(db, 'mfg_data'));
@@ -128,55 +128,85 @@
       } catch (e) {
         window.appState = { sheets: defaultSheets, currentSheetId: "s1", updatedAt: null };
       }
+      
+      // 需求 6: 當重新整理時，自動跳到第一個工作表
+      if (window.appState.sheets && window.appState.sheets.length > 0) {
+        window.appState.currentSheetId = window.appState.sheets[0].id;
+      }
+      
       window.updateTimeDisplay();
       renderApp();
     }
 
-    window.toggleLoginModal = function(show) {
-      document.getElementById('login-modal').style.display = show ? 'flex' : 'none';
-    };
-
     window.handleEmailLogin = function() {
-      const email = document.getElementById('login-email').value;
+      const email = document.getElementById('login-email').value.trim();
       const pass = document.getElementById('login-password').value;
+      const errEl = document.getElementById('login-error');
+
+      if (!email || !pass) {
+        errEl.innerText = "請輸入電子郵件與密碼！";
+        errEl.style.display = "block";
+        return;
+      }
+
       signInWithEmailAndPassword(auth, email, pass)
-        .then(() => { alert("登入成功！"); window.toggleLoginModal(false); })
-        .catch(error => alert("登入失敗: " + error.message));
+        .then(() => {
+          errEl.style.display = "none";
+        })
+        .catch(error => {
+          errEl.innerText = "登入失敗：" + error.message;
+          errEl.style.display = "block";
+        });
     };
 
-    window.logoutGoogle = function() {
+    window.handleLogout = function() {
       signOut(auth).catch(error => alert("登出失敗: " + error.message));
     };
 
+    // 需求 1: 入口處要先登入 firebase 帳號密碼才能進入
     onAuthStateChanged(auth, (user) => {
+      const authModal = document.getElementById("auth-modal");
+      const mainApp = document.getElementById("main-app");
       const userSpan = document.getElementById("user-info");
-      const authBtn = document.getElementById("auth-btn");
+
       if (user) {
-        userSpan.innerText = `管理者：${user.email}`;
         window.isAuthorizedEditor = true;
-        authBtn.innerText = "登出";
-        authBtn.onclick = window.logoutGoogle;
-        authBtn.style.background = "#dc2626";
+        authModal.style.display = "none";
+        mainApp.style.display = "block";
+        if (userSpan) userSpan.innerText = `登入者：${user.email}`;
+        loadDataFromFirebase();
       } else {
         window.isAuthorizedEditor = false;
-        userSpan.innerText = "未登入";
-        authBtn.innerText = "管理員登入";
-        authBtn.onclick = () => window.toggleLoginModal(true);
-        authBtn.style.background = "#2563eb";
+        authModal.style.display = "flex";
+        mainApp.style.display = "none";
       }
-      renderApp();
     });
-
-    loadDataFromFirebase();
   </script>
 
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
-    header { background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    
+    /* 入口 Firebase 登入畫面樣式 */
+    .auth-overlay { position: fixed; inset: 0; background: #0f172a; z-index: 9999; display: flex; justify-content: center; align-items: center; padding: 20px; }
+    .auth-card { background: #ffffff; width: 100%; max-width: 400px; padding: 35px 30px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3); text-align: center; }
+    .auth-card .icon-box { width: 56px; height: 56px; background: #eff6ff; color: #2563eb; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 16px; }
+    .auth-card h2 { font-size: 22px; font-weight: 700; color: #0f172a; margin: 0 0 8px; }
+    .auth-card p { font-size: 13px; color: #64748b; margin: 0 0 24px; }
+    .auth-form { text-align: left; display: flex; flex-col; gap: 16px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 600; color: #475569; text-transform: uppercase; margin-bottom: 6px; }
+    .form-group input { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #cbd5e1; border-radius: 8px; outline: none; box-sizing: border-box; transition: border-color 0.2s; }
+    .form-group input:focus { border-color: #2563eb; ring: 2px #bfdbfe; }
+    .auth-btn-submit { width: 100%; padding: 12px; background: #2563eb; color: #ffffff; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
+    .auth-btn-submit:hover { background: #1d4ed8; }
+    .auth-error { font-size: 12px; color: #ef4444; background: #fef2f2; padding: 10px; border-radius: 6px; border: 1px solid #fecaca; margin-top: 12px; text-align: center; display: none; }
+
+    /* 主應用程式樣式 */
+    header { background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); flex-wrap: wrap; gap: 12px; }
     .brand { font-size: 18px; font-weight: bold; display: flex; align-items: center; gap: 8px; color: #0f172a; }
-    .header-right { display: flex; align-items: center; gap: 15px; font-size: 14px; }
-    .update-banner { font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 4px; }
-    .btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: background 0.2s; color: white; }
+    .header-right { display: flex; align-items: center; gap: 15px; font-size: 14px; flex-wrap: wrap; }
+    .update-banner { font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 4px; background: #f8fafc; padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .btn { padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s; color: white; text-decoration: none; }
     .btn-primary { background: #2563eb; } .btn-primary:hover { background: #1d4ed8; }
     .btn-success { background: #10b981; } .btn-success:hover { background: #059669; }
     .btn-danger { background: #ef4444; } .btn-danger:hover { background: #dc2626; }
@@ -202,65 +232,79 @@
     .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
     .chart-title { font-size: 15px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 8px; }
     .chart-wrapper { position: relative; height: 320px; width: 100%; }
-
-    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
-    .modal-box { background: white; padding: 30px; border-radius: 10px; width: 350px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-    .modal-box h3 { margin-top: 0; margin-bottom: 20px; color: #1e293b; }
-    .modal-box input { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
   </style>
 </head>
 <body>
 
-  <header>
-    <div class="brand"><i class="fa-solid fa-chart-line" style="color:#2563eb;"></i> 刀具費與成本關係</div>
-    <div class="header-right">
-      <!-- 加入的上次更新日期時間顯示區域 -->
-      <div class="update-banner">
-        <i class="fa-regular fa-clock"></i> 上次更新日期時間：<span id="last-update-time-text">讀取中...</span>
-      </div>
-      <span id="save-status" style="font-size: 13px; color: #10b981; font-weight: 500;"></span>
-      <span id="user-info" style="color: #64748b;">檢查登入中...</span>
-      <button class="btn btn-success" onclick="exportToExcel()"><i class="fa-solid fa-file-excel"></i> 匯出 Excel</button>
-      <label class="btn btn-primary" style="margin:0; cursor:pointer;">
-        <i class="fa-solid fa-file-import"></i> 匯入 Excel <input type="file" id="excel-file-input" style="display:none" accept=".xlsx, .xls" onchange="importFromExcel(event)">
-      </label>
-      <button id="auth-btn" class="btn btn-primary">管理員登入</button>
-    </div>
-  </header>
-
-  <div class="modal-overlay" id="login-modal">
-    <div class="modal-box">
-      <h3>管理員登入</h3>
-      <input type="email" id="login-email" placeholder="請輸入管理者電子郵件" value="n1693131@gmail.com">
-      <input type="password" id="login-password" placeholder="請輸入密碼">
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="toggleLoginModal(false)">取消</button>
-        <button class="btn btn-primary" onclick="handleEmailLogin()">登入</button>
+  <!-- 需求 1: 入口全螢幕 Firebase 登入遮罩 -->
+  <div class="auth-overlay" id="auth-modal">
+    <div class="auth-card">
+      <div class="icon-box"><i class="fa-solid fa-chart-line"></i></div>
+      <h2>刀具費與成本關係系統</h2>
+      <p>請輸入 Firebase 電子郵件與密碼登入</p>
+      <div class="auth-form">
+        <div class="form-group">
+          <label>電子郵件 (Email)</label>
+          <input type="email" id="login-email" placeholder="user@example.com" value="n1693131@gmail.com">
+        </div>
+        <div class="form-group">
+          <label>密碼 (Password)</label>
+          <input type="password" id="login-password" placeholder="••••••••">
+        </div>
+        <button class="auth-btn-submit" onclick="handleEmailLogin()">驗證並登入</button>
+        <div class="auth-error" id="login-error"></div>
       </div>
     </div>
   </div>
 
-  <div class="container">
-    <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">工作表導覽列：(提示：以管理者身分登入後，**雙擊工作表分頁**可進行重新命名)</div>
-    <div class="sheet-tabs-bar" id="sheet-tabs-container"></div>
-    
-    <div class="toolbar">
-      <button class="btn btn-primary" onclick="addRow()"><i class="fa-solid fa-plus"></i> 新增列 (Row)</button>
-      <button class="btn btn-danger" onclick="deleteLastRow()"><i class="fa-solid fa-trash"></i> 刪除最後一列</button>
-      <button class="btn btn-primary" onclick="addColumn()"><i class="fa-solid fa-plus"></i> 新增欄位 (Column)</button>
-      <button class="btn btn-danger" onclick="deleteLastColumn()"><i class="fa-solid fa-trash"></i> 刪除最後一欄</button>
-    </div>
+  <!-- 主應用程式頁面內容 (預設隱藏，登入成功後解鎖) -->
+  <div id="main-app" style="display: none;">
+    <header>
+      <div class="brand"><i class="fa-solid fa-chart-line" style="color:#2563eb;"></i> 刀具費與成本關係</div>
+      <div class="header-right">
+        <!-- 動態時間顯示 -->
+        <div class="update-banner">
+          <i class="fa-regular fa-clock"></i> 上次更新日期時間：<span id="last-update-time-text">讀取中...</span>
+        </div>
+        <span id="save-status" style="font-size: 13px; color: #10b981; font-weight: 500;"></span>
+        <span id="user-info" style="color: #64748b; font-weight: 500;"></span>
+        
+        <!-- 需求 3: 一次匯出所有工作表按鈕 -->
+        <button class="btn btn-success" onclick="exportAllSheetsToExcel()">
+          <i class="fa-solid fa-file-export"></i> 一次匯出所有工作表
+        </button>
+        
+        <!-- 需求 4: 一次匯入所有工作表按鈕 -->
+        <label class="btn btn-primary" style="margin:0; cursor:pointer;">
+          <i class="fa-solid fa-file-circle-plus"></i> 一次匯入所有工作表
+          <input type="file" id="excel-file-input" style="display:none" accept=".xlsx, .xls" onchange="importAllSheetsFromExcel(event)">
+        </label>
+        
+        <button class="btn btn-danger" onclick="handleLogout()">登出系統</button>
+      </div>
+    </header>
 
-    <div class="table-container" id="table-view-container"></div>
-    
-    <div id="charts-container"></div>
+    <div class="container">
+      <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">工作表導覽列：(提示：**雙擊工作表分頁**可進行重新命名)</div>
+      <div class="sheet-tabs-bar" id="sheet-tabs-container"></div>
+      
+      <div class="toolbar">
+        <button class="btn btn-primary" onclick="addRow()"><i class="fa-solid fa-plus"></i> 新增列 (Row)</button>
+        <button class="btn btn-danger" onclick="deleteLastRow()"><i class="fa-solid fa-trash"></i> 刪除最後一列</button>
+        <button class="btn btn-primary" onclick="addColumn()"><i class="fa-solid fa-plus"></i> 新增欄位 (Column)</button>
+        <button class="btn btn-danger" onclick="deleteLastColumn()"><i class="fa-solid fa-trash"></i> 刪除最後一欄</button>
+      </div>
+
+      <div class="table-container" id="table-view-container"></div>
+      
+      <div id="charts-container"></div>
+    </div>
   </div>
 
   <script>
     window.renderApp = function() {
       const state = window.appState;
-      if (!state || !state.sheets) return;
+      if (!state || !state.sheets || state.sheets.length === 0) return;
       
       const currentSheet = state.sheets.find(s => s.id === state.currentSheetId) || state.sheets[0];
       state.currentSheetId = currentSheet.id;
@@ -340,7 +384,6 @@
       }
       document.getElementById('charts-container').innerHTML = chartsHtml;
 
-      // 效能優化：縮短 setTimeout 延遲，加速圖表生成反應
       setTimeout(() => { 
         if (isCostSheet) {
           buildAllSixCharts(currentSheet); 
@@ -414,6 +457,7 @@
       }
     };
 
+    // 需求 5: 當新增新的月份資料時, 圖表也會同步更新
     window.addColumn = function() {
       if (!window.isAuthorizedEditor) { alert("需要管理者權限！"); return; }
       const sheet = window.appState.sheets.find(s => s.id === window.appState.currentSheetId);
@@ -443,6 +487,7 @@
       if (!window.isAuthorizedEditor) return;
       const sheet = window.appState.sheets.find(s => s.id === window.appState.currentSheetId);
       sheet.data[rowIdx][key] = val;
+      renderApp(); // 需求 5: 更新資料同步刷新圖表
       window.autoSaveToFirebase();
     };
 
@@ -450,53 +495,95 @@
       if (!window.isAuthorizedEditor) return;
       const sheet = window.appState.sheets.find(s => s.id === window.appState.currentSheetId);
       sheet.columns[colIdx].title = val;
+      renderApp(); // 需求 5: 更新標題同步刷新圖表
       window.autoSaveToFirebase();
     };
 
-    window.exportToExcel = function() {
-      const wb = XLSX.utils.book_new();
-      window.appState.sheets.forEach(sheet => {
-        const exportData = sheet.data.map(row => {
-          let obj = {};
-          sheet.columns.forEach(col => { obj[col.title] = row[col.key]; });
-          return obj;
+    // 需求 3: 一次匯出所有工作表功能
+    window.exportAllSheetsToExcel = function() {
+      try {
+        if (typeof XLSX === 'undefined') return alert('SheetJS 庫載入中，請稍後再試！');
+        if (!window.appState || !window.appState.sheets || window.appState.sheets.length === 0) {
+          return alert('目前沒有可匯出的工作表資料！');
+        }
+
+        const wb = XLSX.utils.book_new();
+
+        window.appState.sheets.forEach(sheet => {
+          const headers = (sheet.columns || []).map(c => c.title);
+          const rowsData = (sheet.data || []).map(row => {
+            const obj = {};
+            (sheet.columns || []).forEach(c => {
+              obj[c.title] = row[c.key] !== undefined ? row[c.key] : '';
+            });
+            return obj;
+          });
+
+          const ws = XLSX.utils.json_to_sheet(rowsData, { header: headers });
+          XLSX.utils.book_append_sheet(wb, ws, sheet.name);
         });
-        const ws = XLSX.utils.json_to_sheet(exportData);
-        XLSX.utils.book_append_sheet(wb, ws, sheet.name);
-      });
-      XLSX.writeFile(wb, "MFG_Output_Analysis.xlsx");
+
+        const dateStr = new Date().toISOString().slice(0, 10);
+        XLSX.writeFile(wb, `MFG_ToolCost_Analysis_${dateStr}.xlsx`);
+      } catch (err) {
+        console.error(err);
+        alert('匯出所有工作表失敗：' + err.message);
+      }
     };
 
-    window.importFromExcel = async function(event) {
+    // 需求 4: 一次匯入所有工作表功能 (當 excel 活頁名稱與網頁活頁名稱相符，則可以匯入)
+    window.importAllSheetsFromExcel = async function(event) {
       if (!window.isAuthorizedEditor) { alert("需要管理者權限才能匯入！"); return; }
       const file = event.target.files[0];
       if (!file) return;
+
       const reader = new FileReader();
       reader.onload = async function(e) {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet);
-        
-        if (json.length > 0) {
-          const keys = Object.keys(json[0]);
-          const columns = keys.map((k, i) => ({ key: i === 0 ? 'category' : `m${i}`, title: k }));
-          const sheetData = json.map(row => {
-            let rObj = {};
-            keys.forEach((k, i) => { rObj[columns[i].key] = row[k]; });
-            return rObj;
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          let matchedCount = 0;
+
+          workbook.SheetNames.forEach(sheetName => {
+            const targetSheet = window.appState.sheets.find(s => s.name.trim() === sheetName.trim());
+            if (targetSheet) {
+              const worksheet = workbook.Sheets[sheetName];
+              const json = XLSX.utils.sheet_to_json(worksheet);
+              
+              if (json.length > 0) {
+                const keys = Object.keys(json[0]);
+                const columns = keys.map((k, idx) => ({
+                  key: idx === 0 ? 'category' : 'm' + idx,
+                  title: k
+                }));
+
+                const sheetData = json.map(row => {
+                  let rObj = {};
+                  keys.forEach((k, idx) => {
+                    rObj[columns[idx].key] = row[k];
+                  });
+                  return rObj;
+                });
+
+                targetSheet.columns = columns;
+                targetSheet.data = sheetData;
+                matchedCount++;
+              }
+            }
           });
 
-          const currentSheet = window.appState.sheets.find(s => s.id === window.appState.currentSheetId) || window.appState.sheets[0];
-          currentSheet.columns = columns;
-          currentSheet.data = sheetData;
-          
-          renderApp();
-          window.autoSaveToFirebase();
-          alert("Excel 匯入成功，並已自動同步儲存至 Firebase！");
+          if (matchedCount > 0) {
+            renderApp();
+            window.autoSaveToFirebase();
+            alert(`成功更新 ${matchedCount} 個相符名稱的工作表，圖表與數據已同步更新！`);
+          } else {
+            alert("Excel 中的工作表名稱與目前網頁中的工作表名稱皆不相符！");
+          }
+        } catch (err) {
+          console.error(err);
+          alert("解析 Excel 檔案失敗，請確認檔案格式是否正確。");
         }
+        event.target.value = '';
       };
       reader.readAsArrayBuffer(file);
     };
