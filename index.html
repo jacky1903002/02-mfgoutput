@@ -264,7 +264,6 @@
         <span id="save-status" style="font-size: 13px; color: #10b981; font-weight: 500;"></span>
         <span id="user-info" style="color: #64748b; font-weight: 500;"></span>
         
-        <!-- 新增匯出 PDF 按鈕 -->
         <button class="btn btn-purple" onclick="exportAllChartsToPDF()">
           <i class="fa-solid fa-file-pdf"></i> 一鍵匯出所有圖表 (PDF)
         </button>
@@ -515,7 +514,13 @@
       return !isNaN(d.getTime()) ? d : null;
     }
 
-    // 需求 2 & 3: 匯出 Excel (日期: MMM-yy, 數值: 0位小數, 百分比: 2位小數, 類別: 通用/文字)
+    // 判斷是否為百分比/佔比欄位 (刀具費/成本 比率)
+    function checkIsRatioRow(catName) {
+      const s = String(catName || '').trim();
+      return s.includes('佔比') || s.includes('%') || s.includes('刀具費/成本');
+    }
+
+    // 匯出所有工作表到 Excel (精確格式處理)
     window.exportAllSheetsToExcel = function() {
       try {
         if (typeof XLSX === 'undefined') return alert('SheetJS 庫載入中，請稍後再試！');
@@ -528,28 +533,28 @@
         window.appState.sheets.forEach(sheet => {
           const wsData = [];
           
-          // 標題列
+          // 標題列處理 (日期格式化)
           const headerRow = (sheet.columns || []).map(c => {
             const d = parseDateToExcelDate(c.title);
             return d ? d : c.title;
           });
           wsData.push(headerRow);
 
-          // 內容列
+          // 資料列處理
           (sheet.data || []).forEach(row => {
             const rData = [];
             const catName = String(row[sheet.columns[0]?.key] || '');
-            const isRatioRow = catName.includes('佔比') || catName.includes('%');
+            const isRatioRow = checkIsRatioRow(catName);
 
             (sheet.columns || []).forEach((c, cIdx) => {
               let val = row[c.key] !== undefined ? row[c.key] : '';
               if (cIdx === 0) {
-                // 第一欄「類別」：通用文字格式
+                // 通用格式 (文字)
                 rData.push(String(val));
               } else {
                 let num = parseNum(val);
                 if (isRatioRow) {
-                  // 百分比格式 (值轉為小數，格式設為 0.00%)
+                  // 強制百分比格式，除以 100 轉為小數儲存
                   let pVal = String(val).replace('%', '').trim();
                   let pNum = parseFloat(pVal);
                   if (!isNaN(pNum)) {
@@ -558,7 +563,7 @@
                     rData.push(0);
                   }
                 } else {
-                  // 一般數值：取整數
+                  // 強制數值格式，四捨五入至小數點 0 位
                   rData.push(Math.round(num));
                 }
               }
@@ -567,11 +572,9 @@
           });
 
           const ws = XLSX.utils.aoa_to_sheet(wsData, { cellDates: true });
-
-          // 設置儲存格 Formatting
           const range = XLSX.utils.decode_range(ws['!ref']);
           
-          // 表頭日期格式: MMM-yy (顯示成 Jan-23)
+          // 標題列日期格式: MMM-yy (顯示成 Jan-23)
           for (let C = 1; C <= range.e.c; ++C) {
             const cellAddress = XLSX.utils.encode_cell({ r: 0, c: C });
             if (ws[cellAddress] && ws[cellAddress].t === 'd') {
@@ -579,11 +582,11 @@
             }
           }
 
-          // 資料列格式設定
+          // 資料儲存格 Format 綁定
           for (let R = 1; R <= range.e.r; ++R) {
             const firstCell = ws[XLSX.utils.encode_cell({ r: R, c: 0 })];
             const rowLabel = firstCell ? String(firstCell.v) : '';
-            const isRatio = rowLabel.includes('佔比') || rowLabel.includes('%');
+            const isRatio = checkIsRatioRow(rowLabel);
 
             for (let C = 0; C <= range.e.c; ++C) {
               const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
@@ -591,12 +594,12 @@
               if (!cell) continue;
 
               if (C === 0) {
-                cell.t = 's'; // 類別文字格式
+                cell.t = 's'; // 通用文字格式
               } else if (typeof cell.v === 'number') {
                 if (isRatio) {
-                  cell.z = '0.00%'; // 百分比小數點第二位
+                  cell.z = '0.00%'; // 強制寫成百分比格式, 小數點第 2 位
                 } else {
-                  cell.z = '#,##0'; // 數值小數點 0 位
+                  cell.z = '#,##0'; // 強制寫成數值格式, 小數點 0 位
                 }
               }
             }
@@ -613,7 +616,7 @@
       }
     };
 
-    // 需求 2: 匯入 Excel 並統一轉型格式
+    // 匯入 Excel 活頁簿 (正確讀取與轉換格式)
     window.importAllSheetsFromExcel = async function(event) {
       if (!window.isAuthorizedEditor) { alert("需要管理者權限才能匯入！"); return; }
       const file = event.target.files[0];
@@ -654,25 +657,27 @@
                   
                   let rObj = {};
                   let catName = String(rowArr[0] || '').trim();
-                  let isRatio = catName.includes('佔比') || catName.includes('%');
+                  let isRatio = checkIsRatioRow(catName);
 
                   columns.forEach((col, cIdx) => {
                     let rawVal = rowArr[cIdx];
                     if (cIdx === 0) {
-                      rObj[col.key] = catName; // 通用格式
+                      rObj[col.key] = catName; // 類別通用格式
                     } else {
                       if (rawVal === undefined || rawVal === null || rawVal === '') {
                         rObj[col.key] = 0;
                       } else {
                         let num = parseNum(rawVal);
                         if (isRatio) {
+                          // 百分比格式：固定為小數點第 2 位
                           if (String(rawVal).includes('%')) {
                             rObj[col.key] = parseFloat(num.toFixed(2));
                           } else {
                             rObj[col.key] = num <= 1 && num > 0 ? parseFloat((num * 100).toFixed(2)) : parseFloat(num.toFixed(2));
                           }
                         } else {
-                          rObj[col.key] = Math.round(num); // 數值到小數點 0 位
+                          // 數值格式：固定為小數點 0 位
+                          rObj[col.key] = Math.round(num);
                         }
                       }
                     }
@@ -867,7 +872,7 @@
       });
     };
 
-    // 需求 3: 一鍵匯出所有頁面圖表成高品質 PDF (解決中文亂碼)
+    // 一鍵匯出所有圖表成 PDF (利用 html2canvas 高解析轉圖封裝，解決中文亂碼)
     window.exportAllChartsToPDF = async function() {
       try {
         const { jsPDF } = window.jspdf;
@@ -883,20 +888,17 @@
           const btn = el.querySelector('button');
           if (btn) btn.style.display = 'none';
 
-          // 使用 html2canvas 高解析轉成圖片，徹底解決中文亂碼
           const canvas = await html2canvas(el, { scale: 3, useCORS: true, backgroundColor: '#ffffff' });
           if (btn) btn.style.display = '';
 
           const imgData = canvas.toDataURL('image/png', 1.0);
           if (i > 0) pdf.addPage('a4', 'landscape');
 
-          // PDF 頂端標頭 (英文 & 頁碼)
           pdf.setFontSize(12);
           pdf.setTextColor(71, 85, 105);
           pdf.text(`Tool Cost Analysis Report - Chart ${i + 1}`, 15, 12);
           pdf.text(`Page ${i + 1} of ${chartElements.length}`, pdfWidth - 35, 12);
 
-          // 計算高解析圖片貼入 PDF 的比例與置中位置
           const margin = 18;
           const maxW = pdfWidth - (margin * 2);
           const maxH = pdfHeight - margin - 15;
