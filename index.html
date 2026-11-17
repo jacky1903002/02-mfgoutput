@@ -5,19 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>刀具費與成本關係分析系統</title>
   
-  <!-- 效能優化：預先連線外部 CDN 資源 -->
   <link rel="preconnect" href="https://cdnjs.cloudflare.com">
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="preconnect" href="https://www.gstatic.com">
   
-  <!-- 引入 FontAwesome, Chart.js, html2canvas, SheetJS (xlsx), jsPDF -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
   
-  <!-- Firebase SDKs & 登入機制 -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
     import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
@@ -41,7 +38,6 @@
     window.isAuthorizedEditor = false;
     window.updatedAt = null;
 
-    // 動態時間格式化與顯示函式
     window.formatDateTime = function(isoString) {
       if (!isoString) return '尚無更新紀錄';
       const d = new Date(isoString);
@@ -114,7 +110,6 @@
 
     window.appState = { sheets: [], currentSheetId: "s1", updatedAt: null };
 
-    // 載入 Firebase 資料，並強制重設當前工作表為第一個
     async function loadDataFromFirebase() {
       try {
         const snapshot = await get(ref(db, 'mfg_data'));
@@ -659,9 +654,10 @@
                         let num = parseNum(rawVal);
                         if (isRatio) {
                           if (String(rawVal).includes('%')) {
-                            rObj[col.key] = parseFloat(num.toFixed(2));
+                            rObj[col.key] = parseFloat(num.toFixed(4));
                           } else {
-                            rObj[col.key] = num <= 1 && num > 0 ? parseFloat((num * 100).toFixed(2)) : parseFloat(num.toFixed(2));
+                            // 如果是小數（如 0.0053），自動乘以 100 轉為百分比數字（如 0.53）
+                            rObj[col.key] = num <= 1 && num > 0 ? parseFloat((num * 100).toFixed(4)) : parseFloat(num.toFixed(4));
                           }
                         } else {
                           rObj[col.key] = Math.round(num);
@@ -742,7 +738,6 @@
       const otherCost = findRow("其他", "成本") || sheet.data[7];
       const otherRatio = findRow("其他", "佔比") || sheet.data[8];
 
-      // 修正：傳入資料陣列，由函式動態計算合適的 Y 軸上限與刻度
       drawBarLineChartWithAutoScale('c1', labels, getValues(tungFee), getRatioValues(tungRatio), '鎢鉬鉭刀具費', '佔比 (%)', 'y', 'y1');
       drawDoubleLineChart('c2', labels, getValues(tungFee), getValues(tungCost), '鎢鉬鉭刀具費', '鎢鉬鉭產品成本');
       
@@ -770,22 +765,19 @@
     }
 
     /**
-     * 【修正重點】自動計算動態雙軸範圍的長條+折線圖函式
-     * 自動根據資料最大值向上取整（加留白），確保柱狀與折線完整不被切掉。
+     * 自動動態計算雙軸範圍（支援自動縮放，確保柱狀與折線完整不被切斷）
      */
     function drawBarLineChartWithAutoScale(chartId, labels, barData, lineData, barLabel, lineLabel, yId, y1Id) {
       const canvas = document.getElementById(`canvas-${chartId}`);
       if (!canvas) return;
       if (window.chartInstances[chartId]) window.chartInstances[chartId].destroy();
 
-      // 計算金額軸 (Bar) 的動態最大值與 Step
       const maxBar = Math.max(...barData, 100000);
-      const paddedBarMax = Math.ceil(maxBar * 1.15 / 100000) * 100000; // 預留 15% 空間向上取整到十萬位
+      const paddedBarMax = Math.ceil(maxBar * 1.15 / 100000) * 100000;
       const barStep = Math.round(paddedBarMax / 6);
 
-      // 計算佔比軸 (Line) 的動態最大值與 Step
       const maxLine = Math.max(...lineData, 1);
-      const paddedLineMax = Math.ceil(maxLine * 1.25); // 預留 25% 空間
+      const paddedLineMax = Math.ceil(maxLine * 1.25);
       const lineStep = Math.max(1, Math.ceil(paddedLineMax / 5));
 
       window.chartInstances[chartId] = new Chart(canvas, {
