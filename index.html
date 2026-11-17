@@ -5,16 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>刀具費與成本關係分析系統</title>
   
+  <!-- 效能優化：預先連線外部 CDN 資源 -->
   <link rel="preconnect" href="https://cdnjs.cloudflare.com">
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="preconnect" href="https://www.gstatic.com">
   
+  <!-- 引入 FontAwesome, Chart.js, html2canvas, SheetJS (xlsx), jsPDF -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
   
+  <!-- Firebase SDKs & 登入機制 -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
     import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
@@ -546,7 +549,7 @@
                   let pVal = String(val).replace('%', '').trim();
                   let pNum = parseFloat(pVal);
                   if (!isNaN(pNum)) {
-                    rData.push(pNum > 1 ? pNum / 100 : pNum);
+                    rData.push(pNum / 100);
                   } else {
                     rData.push(0);
                   }
@@ -653,10 +656,11 @@
                       } else {
                         let num = parseNum(rawVal);
                         if (isRatio) {
+                          // SheetJS raw:false 會讀出例如 "0.54%" 的字串，去掉 % 後直接存為百分比數值 0.54
                           if (String(rawVal).includes('%')) {
                             rObj[col.key] = parseFloat(num.toFixed(4));
                           } else {
-                            // 如果是小數（如 0.0053），自動乘以 100 轉為百分比數字（如 0.53）
+                            // 若 Excel 儲存格沒有 % 符號而是純小數（例如 0.0054），則乘以 100
                             rObj[col.key] = num <= 1 && num > 0 ? parseFloat((num * 100).toFixed(4)) : parseFloat(num.toFixed(4));
                           }
                         } else {
@@ -720,23 +724,30 @@
       };
 
       const getValues = (row) => row ? finalMonthCols.map(c => parseNum(row[c.key])) : labels.map(() => 0);
-      const getRatioValues = (row) => row ? finalMonthCols.map(c => {
-        let v = String(row[c.key] || '0').replace('%','');
-        let n = parseFloat(v);
-        return isNaN(n) ? 0 : (n <= 1 && n > 0 ? n * 100 : n);
-      }) : labels.map(() => 0);
+      
+      // 【核心修正】表格中已統一存為百分比數值（例如 0.54 代表 0.54%），直接解析數字即可，絕不再對 <= 1 的數值重複乘以 100！
+      const getRatioValues = (row) => {
+        if (!row) return labels.map(() => 0);
+        return finalMonthCols.map(c => {
+          let raw = row[c.key];
+          if (raw === undefined || raw === null || raw === '') return 0;
+          let s = String(raw).replace('%', '').trim();
+          let n = parseFloat(s);
+          return isNaN(n) ? 0 : n;
+        });
+      };
 
       const tungFee = findRow("鎢", "刀具") || findRow("鎢鉬", "費") || sheet.data[0];
       const tungCost = findRow("鎢", "成本") || findRow("鎢鉬", "成本") || sheet.data[1];
-      const tungRatio = findRow("鎢", "佔比") || findRow("鎢鉬", "佔比") || sheet.data[2];
+      const tungRatio = findRow("鎢", "佔比") || findRow("鎢", "刀具費/成本") || findRow("鎢鉬", "佔比") || sheet.data[2];
 
       const graphFee = findRow("石墨", "刀具") || findRow("石墨", "費") || sheet.data[3];
       const graphCost = findRow("石墨", "成本") || sheet.data[4];
-      const graphRatio = findRow("石墨", "佔比") || sheet.data[5];
+      const graphRatio = findRow("石墨", "佔比") || findRow("石墨", "刀具費/成本") || sheet.data[5];
 
       const otherFee = findRow("其他", "刀具") || findRow("其他", "費") || sheet.data[6];
       const otherCost = findRow("其他", "成本") || sheet.data[7];
-      const otherRatio = findRow("其他", "佔比") || sheet.data[8];
+      const otherRatio = findRow("其他", "佔比") || findRow("其他", "刀具費/成本") || sheet.data[8];
 
       drawBarLineChartWithAutoScale('c1', labels, getValues(tungFee), getRatioValues(tungRatio), '鎢鉬鉭刀具費', '佔比 (%)', 'y', 'y1');
       drawDoubleLineChart('c2', labels, getValues(tungFee), getValues(tungCost), '鎢鉬鉭刀具費', '鎢鉬鉭產品成本');
@@ -765,20 +776,29 @@
     }
 
     /**
-     * 自動動態計算雙軸範圍（支援自動縮放，確保柱狀與折線完整不被切斷）
+     * 自動動態計算雙軸範圍（支援小數點百分比刻度，確保 0~2% 區間精準呈現）
      */
     function drawBarLineChartWithAutoScale(chartId, labels, barData, lineData, barLabel, lineLabel, yId, y1Id) {
       const canvas = document.getElementById(`canvas-${chartId}`);
       if (!canvas) return;
       if (window.chartInstances[chartId]) window.chartInstances[chartId].destroy();
 
+      // 金額軸自動上限
       const maxBar = Math.max(...barData, 100000);
       const paddedBarMax = Math.ceil(maxBar * 1.15 / 100000) * 100000;
       const barStep = Math.round(paddedBarMax / 6);
 
-      const maxLine = Math.max(...lineData, 1);
-      const paddedLineMax = Math.ceil(maxLine * 1.25);
-      const lineStep = Math.max(1, Math.ceil(paddedLineMax / 5));
+      // 佔比軸自動上限（針對小於等於 2% 的數據給予 0.5% 級距，大於 2% 給予整數級距）
+      const maxLine = Math.max(...lineData, 0.5);
+      let paddedLineMax, lineStep;
+      if (maxLine <= 2) {
+        paddedLineMax = Math.ceil(maxLine * 1.15 * 2) / 2; // 取 0.5 的倍數（例如 1.77 -> 2.0 或 2.5）
+        if (paddedLineMax < 2) paddedLineMax = 2;
+        lineStep = 0.5;
+      } else {
+        paddedLineMax = Math.ceil(maxLine * 1.2);
+        lineStep = Math.max(1, Math.ceil(paddedLineMax / 5));
+      }
 
       window.chartInstances[chartId] = new Chart(canvas, {
         type: 'bar',
@@ -808,7 +828,9 @@
               max: paddedLineMax,
               ticks: { 
                 stepSize: lineStep,
-                callback: function(v) { return Math.round(v) + '%'; } 
+                callback: function(v) { 
+                  return Number.isInteger(v) ? v + '%' : v.toFixed(1) + '%'; 
+                } 
               }, 
               grid: { drawOnChartArea: false }, 
               title: { display: true, text: '佔比 (%)' } 
